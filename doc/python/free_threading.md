@@ -167,23 +167,60 @@ interpreter are:
 
 The Phase 1 support shipped today covers the build-system opt-in and
 the extension-module GIL slot. The following items are tracked as
-follow-ups:
+follow-ups.
 
-* A comprehensive thread-safety audit of the Cython / C layer in
-  `src/python/grpcio/grpc/_cython/_cygrpc/` — in particular
-  `completion_queue.pyx.pxi`, `server.pyx.pxi`, `channel.pyx.pxi`,
-  `fork.pyx.pxi` and the files under `_cygrpc/aio/`.
-* Explicit locking of any shared Python-side registries in
-  `grpc/_channel.py`, `grpc/_server.py`, and `grpc/_common.py` that
-  today rely on GIL atomicity for correctness rather than performance.
+### Phase 2 speculative locking (UNVERIFIED)
+
+As of this PR a first, **speculative and stress-test-unverified** pass
+of locking has been applied to the Phase 2 audit list. These changes
+have **not** been exercised under a free-threaded interpreter or a
+concurrent load generator in-tree; they are a best-effort attempt at
+closing obvious race windows identified by static review. Consider
+them provisional until the Phase 2 stress tests land.
+
+| File | Status | Notes |
+| --- | --- | --- |
+| `_cygrpc/fork.pyx.pxi` | Locked (speculative) | New `_fork_state.channels_lock` guards `add` / `discard` / iteration of `_fork_state.channels`. Never held across gRPC Core calls. |
+| `_cygrpc/completion_queue.pyx.pxi` | Locked (speculative) | New `CompletionQueue._shutdown_lock` serializes transitions of `is_shutting_down` / `is_shutdown`. Hot `poll` path is deliberately unlocked. |
+| `_cygrpc/server.pyx.pxi` | Locked (speculative) | New `Server._state_lock` serializes `register_completion_queue`, `register_method`, `start`, `shutdown`, `notify_shutdown_complete`, and `cancel_all_calls` flag transitions. Not held across `grpc_server_*` C calls. `_c_request_(un)registered_call` hot path intentionally unlocked (post-`start()` the registries are effectively read-only). |
+| `_cygrpc/channel.pyx.pxi` | Locked (speculative) | The `on_failure` callback path in `_next_call_event` now holds `channel_state.condition`, matching the already-locked `on_success` path, so `segregated_call_states.remove` cannot race with concurrent RPC starts. |
+| `_cygrpc/aio/grpc_aio.pyx.pxi` | No change | Already locked by `_global_aio_state.lock`. |
+| `_cygrpc/aio/common.pyx.pxi` | No change | No shared mutable state; helpers only. asyncio single-threaded precondition still applies under no-GIL. |
+| `grpc/_channel.py`, `grpc/_server.py`, `grpc/_common.py` | No change | Existing `threading.Condition` / `threading.RLock` coverage on `_RPCState`, `_ChannelCallState`, and `_ServerState` is sufficient on the state surfaces we inspected; `_common.py` has no mutable module-level state. |
+
+**Caveats and explicit non-claims:**
+
+* Every lock added above is a plain `threading.Lock` (except where the
+  existing code used `threading.Condition`). They are never acquired
+  from within a gRPC Core callback running on a Core-owned thread; they
+  are only acquired from Python-level entry points.
+* We did **not** add locks to hot per-RPC paths
+  (`_c_request_unregistered_call`, `_c_request_registered_call`,
+  `poll`) because the registries they read are only written before
+  `start()` / after `stop()`, and any performance regression from
+  coarser locking cannot be measured in this environment.
+* We did **not** re-audit the `.pxd.pxi` side or touch any `nogil`
+  section; the locking is entirely Python-side.
+* No stress test in this repository exercises concurrent RPC data
+  paths on a free-threaded interpreter. Until that lands, treat the
+  Phase 2 locking as a source-review checkpoint, not a proof of
+  race-freedom.
+
+### Still open
+
+* A comprehensive thread-safety audit of the Cython / C layer beyond
+  the Phase 2 file list, including the `call.pyx.pxi`,
+  `credentials.pyx.pxi`, `grpc_gevent.pyx.pxi` and the full
+  `_cygrpc/aio/` subtree.
 * A real stress-test suite (concurrent unary, streaming, aio,
   channel-state-watch, server-side handler) hooked into the CI job
   described below. The current smoke test only asserts that the GIL
   stays disabled after import and that a small number of concurrent
   channels can be created and closed without an exception.
 * Free-threaded fork support. `grpc._cython.cygrpc` installs
-  `os.register_at_fork` handlers; these handlers must be re-audited for
-  atomicity on a free-threaded interpreter.
+  `os.register_at_fork` handlers; the speculative `channels_lock`
+  added above closes one race but these handlers need broader review
+  against `pthread_atfork` lock-holding hazards.
 * Publishing `cp314t-cp314t` wheels to PyPI.
 
 If you hit a crash, deadlock or data race on `python3.14t`, please

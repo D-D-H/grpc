@@ -46,6 +46,7 @@ cdef class Server:
     self.is_shutdown = False
     self.c_server = NULL
     self.registered_methods = {}  # Mapping[bytes, RegisteredMethod]
+    self._state_lock = threading.Lock()
     cdef _ChannelArgs channel_args = _ChannelArgs(arguments)
     self.c_server = grpc_server_create(channel_args.c_args(), NULL)
     cdef grpc_server_xds_status_notifier notifier
@@ -123,8 +124,14 @@ cdef class Server:
 
   def register_completion_queue(
       self, CompletionQueue queue not None):
-    if self.is_started:
-      raise ValueError("cannot register completion queues after start")
+    with self._state_lock:
+      if self.is_started:
+        raise ValueError("cannot register completion queues after start")
+      self._register_completion_queue_locked(queue)
+
+  cdef _register_completion_queue_locked(self, CompletionQueue queue):
+    # Precondition: self._state_lock is held OR the caller has exclusive
+    # access to the Server (e.g. inside start() before is_started flips).
     with nogil:
       grpc_server_register_completion_queue(
           self.c_server, queue.c_completion_queue, NULL)
@@ -132,11 +139,13 @@ cdef class Server:
 
   def register_method(self, str fully_qualified_method):
     method_bytes = str_to_bytes(fully_qualified_method)
-    if method_bytes in self.registered_methods.keys():
-      # Ignore already registered method
-      return
-    cdef RegisteredMethod registered_method = RegisteredMethod(method_bytes, <uintptr_t>self.c_server)
-    self.registered_methods[method_bytes] = registered_method
+    cdef RegisteredMethod registered_method
+    with self._state_lock:
+      if method_bytes in self.registered_methods:
+        # Ignore already registered method
+        return
+      registered_method = RegisteredMethod(method_bytes, <uintptr_t>self.c_server)
+      self.registered_methods[method_bytes] = registered_method
 
   def start(self, backup_queue=True):
     """Start the Cython gRPC Server.
@@ -146,12 +155,13 @@ cdef class Server:
         queue. In the case that no CQ is bound to the server, and the shutdown
         of server becomes un-observable.
     """
-    if self.is_started:
-      raise ValueError("the server has already started")
-    if backup_queue:
-      self.backup_shutdown_queue = CompletionQueue(shutdown_cq=True)
-      self.register_completion_queue(self.backup_shutdown_queue)
-    self.is_started = True
+    with self._state_lock:
+      if self.is_started:
+        raise ValueError("the server has already started")
+      if backup_queue:
+        self.backup_shutdown_queue = CompletionQueue(shutdown_cq=True)
+        self._register_completion_queue_locked(self.backup_shutdown_queue)
+      self.is_started = True
     with nogil:
       grpc_server_start(self.c_server)
     if backup_queue:
@@ -178,6 +188,8 @@ cdef class Server:
     return result
 
   cdef _c_shutdown(self, CompletionQueue queue, tag):
+    # Precondition: self._state_lock is held by the caller so that the
+    # is_shutting_down transition is serialized with start()/shutdown() peers.
     self.is_shutting_down = True
     cdef _ServerShutdownTag server_shutdown_tag = _ServerShutdownTag(tag, self)
     cpython.Py_INCREF(server_shutdown_tag)
@@ -189,28 +201,30 @@ cdef class Server:
   def shutdown(self, CompletionQueue queue not None, tag):
     if queue.is_shutting_down:
       raise ValueError("queue must be live")
-    elif not self.is_started:
-      raise ValueError("the server hasn't started yet")
-    elif self.is_shutting_down:
-      return
-    elif queue not in self.registered_completion_queues:
-      raise ValueError("expected registered completion queue")
-    else:
-      self._c_shutdown(queue, tag)
+    with self._state_lock:
+      if not self.is_started:
+        raise ValueError("the server hasn't started yet")
+      elif self.is_shutting_down:
+        return
+      elif queue not in self.registered_completion_queues:
+        raise ValueError("expected registered completion queue")
+      else:
+        self._c_shutdown(queue, tag)
 
   cdef notify_shutdown_complete(self):
     # called only after our server shutdown tag has emerged from a completion
     # queue.
-    self.is_shutdown = True
+    with self._state_lock:
+      self.is_shutdown = True
 
   def cancel_all_calls(self):
-    if not self.is_shutting_down:
-      raise UsageError("the server must be shutting down to cancel all calls")
-    elif self.is_shutdown:
-      return
-    else:
-      with nogil:
-        grpc_server_cancel_all_calls(self.c_server)
+    with self._state_lock:
+      if not self.is_shutting_down:
+        raise UsageError("the server must be shutting down to cancel all calls")
+      elif self.is_shutdown:
+        return
+    with nogil:
+      grpc_server_cancel_all_calls(self.c_server)
 
   # TODO(https://github.com/grpc/grpc/issues/17515) Determine what, if any,
   # portion of this is safe to call from __dealloc__, and potentially remove

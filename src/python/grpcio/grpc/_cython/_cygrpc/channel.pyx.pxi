@@ -207,7 +207,12 @@ cdef _next_call_event(
   # propagating any exceptions raised by signal handlers to the application.
   except:
     if on_failure is not None:
-      on_failure()
+      # Hold the channel_state condition while mutating channel-state
+      # collections (e.g. segregated_call_states) from on_failure, matching
+      # the on_success path. This is required for free-threaded (PEP 703)
+      # correctness.
+      with channel_state.condition:
+        on_failure()
     raise
   else:
     with channel_state.condition:

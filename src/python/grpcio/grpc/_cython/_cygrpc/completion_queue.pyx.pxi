@@ -112,11 +112,15 @@ cdef class CompletionQueue:
       self.c_completion_queue = grpc_completion_queue_create_for_next(NULL)
     self.is_shutting_down = False
     self.is_shutdown = False
+    # Guards transitions of is_shutting_down / is_shutdown. Not held across
+    # grpc_completion_queue_next so the hot poll path is unaffected.
+    self._shutdown_lock = threading.Lock()
 
   cdef _interpret_event(self, grpc_event c_event):
     unused_tag, event = _interpret_event(c_event)
     if event.completion_type == GRPC_QUEUE_SHUTDOWN:
-      self.is_shutdown = True
+      with self._shutdown_lock:
+        self.is_shutdown = True
     return event
 
   def _internal_poll(self, deadline):
@@ -134,7 +138,8 @@ cdef class CompletionQueue:
   def shutdown(self):
     with nogil:
       grpc_completion_queue_shutdown(self.c_completion_queue)
-    self.is_shutting_down = True
+    with self._shutdown_lock:
+      self.is_shutting_down = True
 
   def clear(self):
     if not self.is_shutting_down:
