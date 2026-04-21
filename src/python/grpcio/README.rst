@@ -96,3 +96,12 @@ uploaded to PyPi. As a result, it is __not__ a good assumption that the latest
 patch for a given minor version on Github is also the latest patch for that
 same minor version on PyPi.
 
+Free-threaded (PEP 703) CPython support
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Experimental support for the free-threaded / no-GIL build of CPython 3.14
+(``python3.14t``) is available. See
+`doc/python/free_threading.md
+<https://github.com/grpc/grpc/blob/master/doc/python/free_threading.md>`_
+for installation instructions, current status, and thread-safety guarantees.
+

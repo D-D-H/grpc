@@ -209,12 +209,20 @@ _PythonConfigVars = collections.namedtuple(
 )
 
 
-def _python_config_generator(name, major, minor, bits, config_vars):
+def _python_config_generator(name, major, minor, bits, config_vars, suffix=""):
+    # ``suffix`` is used to distinguish between the regular and the
+    # free-threaded (PEP 703) CPython builds, which share the same
+    # major/minor version but install as ``python3.14`` and ``python3.14t``
+    # respectively.
     build = (
         config_vars.shell
         + config_vars.builder
         + config_vars.builder_prefix_arguments
-        + [_python_pattern_function(major=major, minor=minor, bits=bits)]
+        + [
+            _python_pattern_function(
+                major=major, minor=minor, bits=bits, suffix=suffix
+            )
+        ]
         + [name]
         + config_vars.venv_relative_python
         + config_vars.toolchain
@@ -242,19 +250,23 @@ def _pypy_config_generator(name, major, config_vars):
     )
 
 
-def _python_pattern_function(major, minor, bits):
+def _python_pattern_function(major, minor, bits, suffix=""):
     # Bit-ness is handled by the test machine's environment
     if os.name == "nt":
         if bits == "64":
-            return "/c/Python{major}{minor}/python.exe".format(
-                major=major, minor=minor, bits=bits
+            return "/c/Python{major}{minor}{suffix}/python.exe".format(
+                major=major, minor=minor, bits=bits, suffix=suffix
             )
         else:
-            return "/c/Python{major}{minor}_{bits}bits/python.exe".format(
-                major=major, minor=minor, bits=bits
+            return (
+                "/c/Python{major}{minor}{suffix}_{bits}bits/python.exe".format(
+                    major=major, minor=minor, bits=bits, suffix=suffix
+                )
             )
     else:
-        return "python{major}.{minor}".format(major=major, minor=minor)
+        return "python{major}.{minor}{suffix}".format(
+            major=major, minor=minor, suffix=suffix
+        )
 
 
 def _pypy_pattern_function(major):
@@ -756,6 +768,12 @@ class PythonLanguage:
         """Choose the docker image to use based on python version."""
         if self.args.compiler == "python_alpine":
             return "alpine"
+        elif self.args.compiler == "python3.14_freethreaded":
+            # The free-threaded (PEP 703) build of CPython 3.14 is only
+            # available in a dedicated image that builds CPython from
+            # source with ``--disable-gil``. See
+            # ``tools/dockerfile/test/python_free_threaded_debian12_x64/``.
+            return "free_threaded_debian12"
         else:
             return "debian11_default"
 
@@ -850,6 +868,17 @@ class PythonLanguage:
             bits=bits,
             config_vars=config_vars,
         )
+        # Free-threaded (PEP 703) CPython 3.14 build. The interpreter is
+        # installed as ``python3.14t`` and reports ``sys._is_gil_enabled()``
+        # as False; see doc/python/free_threading.md.
+        python314_freethreaded_config = _python_config_generator(
+            name="py314_freethreaded",
+            major="3",
+            minor="14",
+            bits=bits,
+            config_vars=config_vars,
+            suffix="t",
+        )
         pypy27_config = _pypy_config_generator(
             name="pypy", major="2", config_vars=config_vars
         )
@@ -889,6 +918,8 @@ class PythonLanguage:
             return (python313_config,)
         elif args.compiler == "python3.14":
             return (python314_config,)
+        elif args.compiler == "python3.14_freethreaded":
+            return (python314_freethreaded_config,)
         elif args.compiler == "pypy":
             return (pypy27_config,)
         elif args.compiler == "pypy3":
@@ -1744,6 +1775,7 @@ argp.add_argument(
         "python3.12",
         "python3.13",
         "python3.14",
+        "python3.14_freethreaded",
         "pypy",
         "pypy3",
         "python_alpine",

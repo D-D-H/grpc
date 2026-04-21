@@ -254,6 +254,16 @@ def try_cythonize(extensions, linetracing=False, mandatory=True):
     if linetracing:
         additional_define_macros = [("CYTHON_TRACE_NOGIL", "1")]
         cython_compiler_directives["linetrace"] = True
+    # Declare the generated extension module as safe for the free-threaded
+    # (PEP 703) build of CPython. On a regular GIL-enabled interpreter this is
+    # a no-op; on a free-threaded interpreter (``python3.14t``) it causes
+    # Cython to emit the ``Py_mod_gil = Py_MOD_GIL_NOT_USED`` multi-phase init
+    # slot, preventing CPython from re-enabling the GIL when our extension is
+    # imported. This directive is available in Cython >= 3.1.
+    #
+    # See doc/python/free_threading.md for the overall design and the scope of
+    # thread-safety guarantees that this declaration commits gRPC Python to.
+    cython_compiler_directives["freethreading_compatible"] = True
     return Cython.Build.cythonize(
         extensions,
         include_path=[
