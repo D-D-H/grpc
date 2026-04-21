@@ -1,0 +1,26 @@
+#=================
+# Compile free-threaded (PEP 703 / no-GIL) CPython 3.14 from source.
+#
+# Upstream distributions do not yet ship a ``python3.14t`` binary in their
+# package managers, so we build one ourselves. The build uses the same
+# tarball as the regular ``python3.14`` build but is configured with
+# ``--disable-gil`` and ``--with-pydebug=no``. The resulting interpreter is
+# installed as ``/usr/local/bin/python3.14t`` with the ``t`` ABI tag so that
+# it can coexist with the regular ``python3.14`` build on the same image.
+#
+# Kept in sync with ``templates/tools/dockerfile/compile_python_314.include``.
+
+RUN apt-get update && apt-get install -y zlib1g-dev libssl-dev libsqlite3-dev && apt-get clean
+RUN apt-get update && apt-get install -y jq build-essential libffi-dev && apt-get clean
+
+RUN cd /tmp && \
+    wget -q https://www.python.org/ftp/python/3.14.0/Python-3.14.0.tgz && \
+    tar xzvf Python-3.14.0.tgz && \
+    mv Python-3.14.0 Python-3.14.0-freethreaded && \
+    cd Python-3.14.0-freethreaded && \
+    ./configure --disable-gil && \
+    make -j4 && \
+    make altinstall
+
+RUN python3.14t -m ensurepip && \
+    python3.14t -m pip install coverage

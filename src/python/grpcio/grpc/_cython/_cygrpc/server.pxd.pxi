@@ -25,8 +25,13 @@ cdef class Server:
   cdef list references
   cdef list registered_completion_queues
   cdef dict registered_methods # Mapping[bytes, RegisteredMethod]
+  # threading.Lock guarding registration dicts/lists and the is_started /
+  # is_shutting_down / is_shutdown flag transitions under the free-threaded
+  # (PEP 703) build. Never held across grpc_server_* C calls.
+  cdef object _state_lock
 
   cdef _c_shutdown(self, CompletionQueue queue, tag)
+  cdef _register_completion_queue_locked(self, CompletionQueue queue)
   cdef _c_request_unregistered_call(self,
        _RequestCallTag request_call_tag,
        CompletionQueue call_queue,

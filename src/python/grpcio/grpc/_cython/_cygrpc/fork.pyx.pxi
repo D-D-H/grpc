@@ -81,7 +81,12 @@ cdef void __postfork_child() noexcept nogil:
                 state_to_reset.reset_postfork_child()
             _fork_state.postfork_states_to_reset = []
             _fork_state.fork_epoch += 1
-            for channel in _fork_state.channels:
+            # Snapshot under channels_lock: in the free-threaded build another
+            # thread may be in the middle of fork_register_channel /
+            # fork_unregister_channel when the at-fork handler fires.
+            with _fork_state.channels_lock:
+                channels_snapshot = list(_fork_state.channels)
+            for channel in channels_snapshot:
                 channel._close_on_fork()
             with _fork_state.fork_in_progress_condition:
                 _fork_state.fork_in_progress = False
@@ -171,12 +176,14 @@ def is_fork_support_enabled():
 
 def fork_register_channel(channel):
     if _GRPC_ENABLE_FORK_SUPPORT:
-        _fork_state.channels.add(channel)
+        with _fork_state.channels_lock:
+            _fork_state.channels.add(channel)
 
 
 def fork_unregister_channel(channel):
     if _GRPC_ENABLE_FORK_SUPPORT:
-        _fork_state.channels.discard(channel)
+        with _fork_state.channels_lock:
+            _fork_state.channels.discard(channel)
 
 
 class _ActiveThreadCount:
@@ -221,6 +228,10 @@ class _ForkState:
         self.active_thread_count = _ActiveThreadCount()
         self.fork_epoch = 0
         self.channels = set()
+        # Protects `channels` against concurrent mutation under the
+        # free-threaded (PEP 703) build. Must not be held across gRPC Core
+        # calls or across channel callbacks.
+        self.channels_lock = threading.Lock()
 
 
 _fork_state = _ForkState()

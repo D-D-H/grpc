@@ -301,6 +301,20 @@ if "darwin" in sys.platform:
 EXTRA_COMPILE_ARGS = shlex.split(EXTRA_ENV_COMPILE_ARGS)
 EXTRA_LINK_ARGS = shlex.split(EXTRA_ENV_LINK_ARGS)
 
+# Detect the free-threaded (PEP 703, "no-GIL") build of CPython 3.13+ (stable in
+# CPython 3.14 / ABI tag "t", e.g. interpreter name ``python3.14t``). On such an
+# interpreter ``sysconfig`` reports ``Py_GIL_DISABLED == 1``. We surface this to
+# the rest of setup.py so it can explicitly define the macro for any C sources
+# that are compiled outside of the CPython headers' own propagation of it.
+#
+# See doc/python/free_threading.md for the overall design and rollout plan.
+IS_FREE_THREADED_PYTHON = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+if IS_FREE_THREADED_PYTHON:
+    print(
+        "Building grpcio for a free-threaded (PEP 703) CPython interpreter; "
+        "the extension module will opt in to Py_MOD_GIL_NOT_USED."
+    )
+
 if BUILD_WITH_STATIC_LIBSTDCXX:
     EXTRA_LINK_ARGS.append("-static-libstdc++")
 
@@ -398,6 +412,12 @@ if BUILD_WITH_SYSTEM_ABSL:
     )
 
 DEFINE_MACROS = (("_WIN32_WINNT", 0x600),)
+if IS_FREE_THREADED_PYTHON:
+    # The CPython headers set ``Py_GIL_DISABLED`` on free-threaded builds, but
+    # we define it here as well so that vendored C/C++ sources that do not
+    # transitively include ``Python.h`` (e.g. some boringssl / abseil shims)
+    # still observe a consistent configuration.
+    DEFINE_MACROS += (("Py_GIL_DISABLED", 1),)
 asm_files = []
 
 

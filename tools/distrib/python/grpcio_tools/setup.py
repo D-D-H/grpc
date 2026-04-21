@@ -244,6 +244,17 @@ if "darwin" in sys.platform:
 EXTRA_COMPILE_ARGS = shlex.split(EXTRA_ENV_COMPILE_ARGS)
 EXTRA_LINK_ARGS = shlex.split(EXTRA_ENV_LINK_ARGS)
 
+# See doc/python/free_threading.md and the matching block in the top-level
+# setup.py for the rationale. Free-threaded (PEP 703) CPython builds report
+# ``Py_GIL_DISABLED == 1`` via ``sysconfig``.
+IS_FREE_THREADED_PYTHON = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
+if IS_FREE_THREADED_PYTHON:
+    print(
+        "Building grpcio-tools for a free-threaded (PEP 703) CPython "
+        "interpreter; the extension module will opt in to "
+        "Py_MOD_GIL_NOT_USED."
+    )
+
 if BUILD_WITH_STATIC_LIBSTDCXX:
     EXTRA_LINK_ARGS.append("-static-libstdc++")
 
@@ -261,6 +272,8 @@ GRPC_PYTHON_TOOLS_PACKAGE = "grpc_tools"
 GRPC_PYTHON_PROTO_RESOURCES_NAME = "_proto"
 
 DEFINE_MACROS = ()
+if IS_FREE_THREADED_PYTHON:
+    DEFINE_MACROS += (("Py_GIL_DISABLED", 1),)
 if "win32" in sys.platform:
     DEFINE_MACROS += (
         ("WIN32_LEAN_AND_MEAN", 1),
@@ -327,7 +340,13 @@ def extension_modules():
     if BUILD_WITH_CYTHON:
         from Cython import Build
 
-        return Build.cythonize(extensions)
+        # Opt the ``grpc_tools._protoc_compiler`` extension in to no-GIL
+        # execution on free-threaded CPython builds. See
+        # doc/python/free_threading.md for the overall design.
+        return Build.cythonize(
+            extensions,
+            compiler_directives={"freethreading_compatible": True},
+        )
     else:
         return extensions
 

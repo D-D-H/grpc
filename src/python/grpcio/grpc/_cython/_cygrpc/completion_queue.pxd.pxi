@@ -28,5 +28,8 @@ cdef class CompletionQueue:
   cdef grpc_completion_queue *c_completion_queue
   cdef bint is_shutting_down
   cdef bint is_shutdown
+  # threading.Lock guarding is_shutting_down / is_shutdown transitions under
+  # the free-threaded (PEP 703) build. Never held across grpc_completion_queue_next.
+  cdef object _shutdown_lock
 
   cdef _interpret_event(self, grpc_event c_event)
