@@ -105,6 +105,42 @@ Help, I ...
   when the :code:`-fwrapv` flag is specified. You should consider setting your
   environment with :code:`CFLAGS=-fno-wrapv` or using clang (:code:`CC=clang`).
 
+Free-threaded CPython (PEP 703) Support
+---------------------------------------
+
+Starting with CPython 3.13, an experimental "free-threaded" build (also
+known as ``--disable-gil`` or ``Py_GIL_DISABLED``, with executables
+typically named ``python3.13t`` / ``python3.14t``) is available. The
+``grpcio-tools`` Cython extension declares itself free-threading
+compatible via the ``# cython: freethreading_compatible=True`` directive
+in ``grpc_tools/_protoc_compiler.pyx``. As a result, importing
+``grpc_tools.protoc`` on a free-threaded interpreter does **not**
+trigger CPython's automatic re-enablement of the GIL.
+
+Support status:
+
+* **Beta.** The native extension loads cleanly and ``protoc`` code
+  generation is expected to work, but free-threading mode is not yet
+  exercised in the default CI matrix. Treat free-threaded support as
+  *beta* and please report issues at
+  https://github.com/grpc/grpc/issues.
+* The companion ``grpcio`` (``grpc._cython.cygrpc``) and
+  ``grpcio-observability`` (``grpc_observability._cyobservability``)
+  Cython extensions are similarly declared free-threading compatible.
+
+Known limitations:
+
+* **Generated protobuf modules** that select the C++ ``protobuf``
+  implementation depend on the ``protobuf`` package's own free-threading
+  status. If ``protobuf`` does not declare free-threading
+  compatibility, CPython will automatically re-enable the GIL for the
+  entire process when those modules are imported.
+* The stable limited ABI (``Py_LIMITED_API``) is mutually exclusive
+  with free-threaded builds; ``cp313t`` / ``cp314t`` wheels are
+  therefore published as separate artifacts (when wheels are produced
+  for those ABIs).
+
+
 Usage
 -----
 

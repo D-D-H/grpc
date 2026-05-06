@@ -53,6 +53,50 @@ GCC-like stuff, but you may end up having a bad time.
   $ GRPC_PYTHON_BUILD_WITH_CYTHON=1 pip install .
 
 
+Free-threaded CPython (PEP 703) Support
+---------------------------------------
+
+Starting with CPython 3.13, an experimental "free-threaded" build (also
+known as ``--disable-gil`` or ``Py_GIL_DISABLED``, with executables
+typically named ``python3.13t`` / ``python3.14t``) is available. The
+``grpcio-observability`` Cython extension declares itself free-threading
+compatible via the ``# cython: freethreading_compatible=True`` directive
+in ``grpc_observability/_cyobservability.pyx``. As a result, importing
+``grpc_observability`` on a free-threaded interpreter does **not**
+trigger CPython's automatic re-enablement of the GIL.
+
+Support status:
+
+* **Beta.** The native extension loads cleanly and the observability
+  plugin is expected to work, but free-threading mode is not yet
+  exercised in the default CI matrix. Treat free-threaded support as
+  *beta* and please report issues at
+  https://github.com/grpc/grpc/issues.
+* The companion ``grpcio`` (``grpc._cython.cygrpc``) and
+  ``grpcio-tools`` (``grpc_tools._protoc_compiler``) Cython extensions
+  are similarly declared free-threading compatible.
+
+Known limitations:
+
+* **OpenTelemetry exporter dependencies** (for example
+  ``opentelemetry-api``, ``opentelemetry-sdk`` and language-specific
+  exporters) must themselves declare free-threading compatibility. If
+  any imported extension does not, CPython will automatically re-enable
+  the GIL for the entire process, which negates the benefit of running
+  on a free-threaded interpreter.
+* Because telemetry data collected at the gRPC Core layer is exported
+  to Python in batches via a dedicated thread, free-threaded
+  interpreters may exhibit different contention characteristics than a
+  GIL-enabled build. Tune
+  ``GRPC_PYTHON_CENSUS_EXPORT_BATCH_INTERVAL`` and
+  ``GRPC_PYTHON_CENSUS_MAX_EXPORT_BUFFER_SIZE`` (see below) if you
+  observe regressions.
+* The stable limited ABI (``Py_LIMITED_API``) is mutually exclusive
+  with free-threaded builds; ``cp313t`` / ``cp314t`` wheels are
+  therefore published as separate artifacts (when wheels are produced
+  for those ABIs).
+
+
 Dependencies
 ------------
 gRPC Python Observability Depends on the following packages:
