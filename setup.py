@@ -99,10 +99,22 @@ CLASSIFIERS = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    # PEP 703 / free-threaded CPython support. The Cython extension declares
+    # itself free-threading compatible via the `freethreading_compatible`
+    # directive in `src/python/grpcio/grpc/_cython/cygrpc.pyx`, so wheels
+    # built for `python3.13t` / `python3.14t` will not cause CPython to
+    # automatically re-enable the GIL on import.
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
 ] + [
     f"Programming Language :: Python :: {x}"
     for x in python_version.SUPPORTED_PYTHON_VERSIONS
 ]
+
+
+# True when running under a free-threaded (PEP 703) CPython build, e.g.
+# `python3.13t`. Free-threaded builds are mutually exclusive with the stable
+# limited ABI (`Py_LIMITED_API`), so we use this to guard related logic.
+PY_GIL_DISABLED = bool(sysconfig.get_config_var("Py_GIL_DISABLED"))
 
 
 def _env_bool_value(env_name, default):
