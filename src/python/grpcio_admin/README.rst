@@ -21,3 +21,31 @@ https://github.com/grpc-ecosystem/grpcdebug.
 
 For any issues or suggestions, please send to
 https://github.com/grpc/grpc/issues.
+
+
+Free-threaded CPython (PEP 703) Support
+---------------------------------------
+
+Starting with CPython 3.13, an experimental "free-threaded" build (also
+known as ``--disable-gil`` or ``Py_GIL_DISABLED``, with executables
+typically named ``python3.13t`` / ``python3.14t``) is available.
+``grpcio-admin`` is a pure-Python meta-package that re-exports the
+admin servicers from ``grpcio-channelz`` and ``grpcio-csds``; its
+free-threading behavior is therefore inherited from its dependencies.
+The ``grpcio`` Cython extension that those packages build on declares
+itself free-threading compatible via the
+``# cython: freethreading_compatible=True`` directive in
+``src/python/grpcio/grpc/_cython/cygrpc.pyx``, so importing
+``grpc_admin`` on a free-threaded interpreter does **not** trigger
+CPython's automatic re-enablement of the GIL.
+
+Support status:
+
+* **Beta.** The admin servicers are expected to work, but free-threading
+  mode is not yet exercised in the default CI matrix. Treat
+  free-threaded support as *beta* and please report issues at
+  https://github.com/grpc/grpc/issues.
+* The companion ``grpcio`` (``grpc._cython.cygrpc``),
+  ``grpcio-tools`` (``grpc_tools._protoc_compiler``) and
+  ``grpcio-observability`` (``grpc_observability._cyobservability``)
+  Cython extensions are similarly declared free-threading compatible.
