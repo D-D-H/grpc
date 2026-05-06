@@ -29,6 +29,10 @@ classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    # PEP 703 / free-threaded CPython support. This package is pure Python
+    # and only depends on other gRPC packages whose native extensions
+    # already declare free-threading compatibility.
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
 ]
 
 dynamic = ["dependencies", "version", "requires-python"]

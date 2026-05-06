@@ -47,6 +47,10 @@ CLASSIFIERS = [
     "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    # PEP 703 / free-threaded CPython support. This package is pure Python
+    # and only re-exports symbols from `grpcio`, which itself declares
+    # free-threading compatibility on its Cython extension.
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
 ] + [
     f"Programming Language :: Python :: {x}"
     for x in python_version.SUPPORTED_PYTHON_VERSIONS
