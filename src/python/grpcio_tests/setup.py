@@ -64,6 +64,10 @@ TESTS_REQUIRE = INSTALL_REQUIRES
 CLASSIFIERS = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    # PEP 703 / free-threaded CPython support. This package is pure Python
+    # test code that exercises `grpcio`, which itself declares
+    # free-threading compatibility on its Cython extension.
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
 ]
 
 if __name__ == "__main__":
