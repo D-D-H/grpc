@@ -96,3 +96,48 @@ uploaded to PyPi. As a result, it is __not__ a good assumption that the latest
 patch for a given minor version on Github is also the latest patch for that
 same minor version on PyPi.
 
+
+Free-threaded CPython (PEP 703) Support
+---------------------------------------
+
+Starting with CPython 3.13, an experimental "free-threaded" build (also known
+as ``--disable-gil`` or ``Py_GIL_DISABLED``, with executables typically named
+``python3.13t`` / ``python3.14t``) is available. The ``grpcio`` Cython
+extension declares itself free-threading compatible via the
+``# cython: freethreading_compatible=True`` directive in
+``src/python/grpcio/grpc/_cython/cygrpc.pyx``. As a result, importing
+``grpc`` on a free-threaded interpreter does **not** trigger CPython's
+automatic re-enablement of the GIL.
+
+Support status:
+
+* **Beta.** The native extension loads cleanly and the synchronous and
+  ``grpc.aio`` APIs are expected to work, but free-threading mode is not
+  yet exercised in the default CI matrix. Treat free-threaded support as
+  *beta* and please report issues at
+  https://github.com/grpc/grpc/issues.
+* The companion Cython extensions in
+  ``grpcio-tools`` (``grpc_tools._protoc_compiler``) and
+  ``grpcio-observability`` (``grpc_observability._cyobservability``) are
+  similarly declared free-threading compatible.
+
+Known limitations:
+
+* **gevent integration** (``grpc.experimental.gevent``) is not supported on
+  free-threaded interpreters, because gevent itself does not currently
+  declare free-threading compatibility.
+* **Third-party C/C++ extensions** that gRPC commonly interacts with —
+  notably ``protobuf`` (when the C++ implementation is selected) and the
+  OpenTelemetry exporter packages used by ``grpcio-observability`` — must
+  themselves declare free-threading compatibility. If any imported
+  extension does not, CPython will automatically re-enable the GIL for
+  the entire process.
+* ``os.fork()``-based fork support
+  (``GRPC_ENABLE_FORK_SUPPORT=1``) is more fragile under free-threading.
+  Prefer ``multiprocessing`` with ``set_start_method("spawn")`` when
+  possible.
+* The stable limited ABI (``Py_LIMITED_API``) is mutually exclusive with
+  free-threaded builds; ``cp313t`` / ``cp314t`` wheels are therefore
+  published as separate artifacts (when wheels are produced for those
+  ABIs).
+
